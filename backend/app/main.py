@@ -16,6 +16,10 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from backend.app import settings as app_settings
+from backend.app.db import init_db
+from backend.app.repository import build_dummy_repo_info, register_repository
+
 log = logging.getLogger("gitguardian")
 
 APP_TITLE = "GitGuardian"
@@ -63,7 +67,7 @@ class BridgeAPI:
     """Frontend contract owned by Member 2 (Backend Orchestrator).
 
     Helpers start with an underscore so pywebview does not expose them.
-    All methods below are stubs and get real bodies in later parts.
+    Methods still returning _not_implemented get real bodies in later parts.
     """
 
     @staticmethod
@@ -84,7 +88,14 @@ class BridgeAPI:
 
     @bridge_method
     def open_repository(self, path: str) -> JsonDict:
-        return self._not_implemented("open_repository")
+        if not isinstance(path, str) or not path.strip():
+            return fail("Repository path is required")
+        repo_path = Path(path).expanduser()
+        if not repo_path.is_dir():
+            return fail(f"Folder not found: {path}")
+        repo_id = register_repository(repo_path)
+        # TODO (Member 3): replace with real Git Engine data
+        return ok(build_dummy_repo_info(repo_id, repo_path))
 
     @bridge_method
     def analyze_merge(self, source: str, target: str) -> JsonDict:
@@ -92,11 +103,14 @@ class BridgeAPI:
 
     @bridge_method
     def get_settings(self) -> JsonDict:
-        return self._not_implemented("get_settings")
+        return ok(app_settings.load_settings())
 
     @bridge_method
     def set_settings(self, settings: dict) -> JsonDict:
-        return self._not_implemented("set_settings")
+        try:
+            return ok(app_settings.save_settings(settings))
+        except ValueError as exc:
+            return fail(str(exc))
 
     @bridge_method
     def explain_conflict(self, file: str, hunk_id: str) -> JsonDict:
@@ -226,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
 
+    init_db()
     api = BridgeAPI()
     return run_stdio(api) if args.stdio else run_gui(api, debug=args.debug)
 
