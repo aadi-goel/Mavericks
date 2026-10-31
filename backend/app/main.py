@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from backend.app import resolution
 from backend.app import settings as app_settings
 from backend.app.analysis import build_mock_analysis
 from backend.app.db import init_db
@@ -76,6 +77,7 @@ class BridgeAPI:
         self._repo_id: int | None = None
         self._repo_path: Path | None = None
         self._analysis: JsonDict | None = None  # latest analyze_merge result
+        self._resolutions: dict[str, str] = {}  # file path -> resolved content
 
     @staticmethod
     def _not_implemented(name: str) -> JsonDict:
@@ -104,6 +106,7 @@ class BridgeAPI:
         self._repo_id = repo_id
         self._repo_path = repo_path.resolve()
         self._analysis = None  # a new repo invalidates any old analysis
+        self._resolutions = {}
         # TODO (Member 3): replace with real Git Engine data
         return ok(build_dummy_repo_info(repo_id, repo_path))
 
@@ -120,6 +123,7 @@ class BridgeAPI:
         # TODO (Member 3 + 4): replace with real Git Engine + Provenance data
         analysis = build_mock_analysis(self._repo_id, source, target)
         self._analysis = analysis  # Parts 5 and 7 read hunks/files from here
+        self._resolutions = {}  # a new analysis starts a fresh resolve session
         return ok(analysis)
 
     @bridge_method
@@ -139,15 +143,47 @@ class BridgeAPI:
 
     @bridge_method
     def save_resolution(self, file: str, content: str) -> JsonDict:
-        return self._not_implemented("save_resolution")
+        if self._analysis is None:
+            return fail("Run analyze_merge first")
+        try:
+            return ok(resolution.save(self._analysis, self._resolutions, file, content))
+        except ValueError as exc:
+            return fail(str(exc))
 
     @bridge_method
     def preview_commit(self) -> JsonDict:
-        return self._not_implemented("preview_commit")
+        if self._analysis is None:
+            return fail("Run analyze_merge first")
+        # TODO (Member 3): real `git diff` of the result vs the target branch
+        return ok(resolution.build_preview(self._analysis, self._resolutions))
 
     @bridge_method
     def commit_resolution(self, message: str, approved: bool) -> JsonDict:
-        return self._not_implemented("commit_resolution")
+        if self._analysis is None or self._repo_id is None:
+            return fail("Run analyze_merge first")
+        try:
+            files = resolution.validate_commit(
+                self._analysis, self._resolutions, message, approved
+            )
+        except ValueError as exc:
+            return fail(str(exc))
+
+        # TODO (Member 3): block if the target checkout has uncommitted changes,
+        # then create the real two-parent merge commit with `git commit`.
+        resolution.log_resolution(
+            self._repo_id,
+            self._analysis["source"],
+            self._analysis["target"],
+            files,
+            approved=True,
+            final_commit=None,  # becomes the real hash once Member 3's code exists
+        )
+        result = resolution.mock_commit_result(message, files)
+
+        # The analysis is stale after a commit; force a fresh analyze_merge.
+        self._analysis = None
+        self._resolutions = {}
+        return ok(result)
 
 
 # Allow-list of callable names, used by the stdio transport.
