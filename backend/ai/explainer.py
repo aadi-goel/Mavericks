@@ -1,7 +1,7 @@
 """explain_conflict orchestration (PRD section 7.7).
 
 Flow: build a size-limited input -> hash it -> look in ai_cache -> call Gemma
-only on a miss -> store the answer. Failures are never cached.
+only on a miss -> store the answer. Failures and cut-off answers are never cached.
 
 Safety rules from the PRD:
 - repository text is untrusted: it is delimited, JSON-escaped and labeled
@@ -13,14 +13,19 @@ import hashlib
 import json
 from typing import Any
 
-from backend.ai.client import DEFAULT_TIMEOUT, LMStudioClient
+from backend.ai.client import LMStudioClient
 from backend.app.db import connection, utc_now
 
-PROMPT_VERSION = 1  # bump when the prompt changes so old cache entries are not reused
+PROMPT_VERSION = 2  # bump when the prompt or limits change so old cache entries are not reused
 MAX_SNIPPET_CHARS = 2000
 MAX_COMMITS_PER_SIDE = 5
 MAX_MESSAGE_CHARS = 300
 AI_LABEL = "AI explanation — verify before relying on it"
+
+# The PRD default timeout is 30 s, but a small local model on a laptop can need
+# longer for a full answer. Set AI_TIMEOUT = 30 to match the PRD exactly.
+AI_TIMEOUT = 60
+AI_MAX_TOKENS = 800
 
 SYSTEM_PROMPT = (
     "You explain Git merge conflicts to developers in plain language.\n"
@@ -147,11 +152,18 @@ def explain(
         }
 
     client = LMStudioClient(
-        base_url=settings["lm_studio_url"], model=model, timeout=DEFAULT_TIMEOUT
+        base_url=settings["lm_studio_url"], model=model, timeout=AI_TIMEOUT
     )
-    result = client.complete(SYSTEM_PROMPT, build_user_prompt(payload), max_tokens=500)
+    result = client.complete(
+        SYSTEM_PROMPT, build_user_prompt(payload), max_tokens=AI_MAX_TOKENS
+    )
     if not result["ok"]:
         raise ValueError(result["error"])  # not cached, the app keeps working
+    if result.get("finish_reason") == "length":
+        raise ValueError(
+            "Gemma's answer was cut off before it finished, so nothing was saved. "
+            "Try again, or use a faster model."
+        )
 
     _cache_put(repo_id, digest, result["text"], result["model"])
     return {

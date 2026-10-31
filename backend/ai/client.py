@@ -1,13 +1,14 @@
 """Local LM Studio client for Gemma (PRD section 7.7).
 
 - Talks only to localhost (PRD section 10: source code never leaves the machine).
-- 30 second timeout, no retry loop.
+- 30 second default timeout, no retry loop.
 - Never raises: every outcome is a plain dict so the app keeps working when
   LM Studio is not running.
 
-    {"ok": True,  "text": "...", "model": "..."}
+    {"ok": True,  "text": "...", "model": "...", "finish_reason": "stop"}
     {"ok": False, "error": "human readable message", "code": "offline"}
 
+finish_reason "length" means the answer was cut off at max_tokens.
 Error codes: invalid_url, offline, timeout, http_error, bad_response.
 """
 
@@ -34,8 +35,8 @@ _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 AIResult = dict[str, Any]
 
 
-def _success(text: str, model: str) -> AIResult:
-    return {"ok": True, "text": text, "model": model}
+def _success(text: str, model: str, finish_reason: str | None) -> AIResult:
+    return {"ok": True, "text": text, "model": model, "finish_reason": finish_reason}
 
 
 def _failure(error: str, code: str) -> AIResult:
@@ -113,10 +114,12 @@ class LMStudioClient:
             return _failure("LM Studio response was too large", "bad_response")
         try:
             data = json.loads(raw)
-            text = data["choices"][0]["message"]["content"].strip()
+            choice = data["choices"][0]
+            text = choice["message"]["content"].strip()
+            finish_reason = choice.get("finish_reason")
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             return _failure("LM Studio sent a response in an unexpected format", "bad_response")
         if not text:
             return _failure("LM Studio returned an empty answer", "bad_response")
 
-        return _success(text, str(data.get("model") or self.model))
+        return _success(text, str(data.get("model") or self.model), finish_reason)
