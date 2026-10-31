@@ -1,6 +1,11 @@
 import json
 
-from backend.provenance.status import get_commit_evidence
+from backend.provenance import status as _status
+
+
+def get_commit_evidence(*args, **kwargs):
+    """Part 3 tests only care about the commit's own evidence."""
+    return _status.get_commit_evidence(*args, **kwargs)["this_commit_evidence"]
 
 A = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
 B = "b2c3d4e5f60718293a4b5c6d7e8f901234567890"

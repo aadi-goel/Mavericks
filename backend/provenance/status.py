@@ -108,12 +108,62 @@ def compute_status(commit_hash: str, evidence: dict[str, Any]) -> dict[str, Any]
     return _result(commit, status, evidence, matched, deployments)
 
 
-def get_commit_evidence(
+def def get_commit_evidence(
     commit_hash: str,
     evidence_path: str | Path = DEFAULT_EVIDENCE_PATH,
+    *,
+    original_hash: str | None = None,
 ) -> dict[str, Any]:
-    """Load the evidence file and return the status dict for one commit.
+    """Return evidence for a commit and, optionally, for its cherry-pick original.
 
-    Never raises: every problem is reported as data (status "Unknown" + error).
+    The two statuses are computed independently and returned in separate keys.
+    Results are NEVER transferred or merged between the copy and the original.
+
+    Returns:
+        {
+          "commit": normalized hash of this commit,
+          "original_hash": normalized original hash, or None,
+          "is_cherry_pick": bool,
+          "this_commit_evidence": {...status dict from compute_status...},
+          "original_commit_evidence": {...status dict...} or None,
+          "note": explanatory text, or None,
+        }
+
+    Never raises: problems come back as data (status "Unknown" + error).
     """
-    return compute_status(commit_hash, load_evidence_file(evidence_path))
+    evidence = load_evidence_file(evidence_path)  # parse once, use for both
+
+    this = compute_status(commit_hash, evidence)
+    this["relationship"] = "this_commit"
+
+    result: dict[str, Any] = {
+        "commit": this["commit"],
+        "original_hash": None,
+        "is_cherry_pick": False,
+        "this_commit_evidence": this,
+        "original_commit_evidence": None,
+        "note": None,
+    }
+
+    # No original supplied (or blank): not a cherry-pick as far as we know.
+    if original_hash is None or (isinstance(original_hash, str) and not original_hash.strip()):
+        return result
+
+    # Guard against a commit being passed as its own original.
+    this_norm = _normalize_hash(commit_hash)
+    orig_norm = _normalize_hash(original_hash)
+    if this_norm and orig_norm and _hashes_match(this_norm, orig_norm):
+        result["note"] = "original_hash is the same commit; not treated as a cherry-pick"
+        return result
+
+    original = compute_status(original_hash, evidence)
+    original["relationship"] = "original_commit"
+
+    result["original_hash"] = original["commit"]
+    result["is_cherry_pick"] = True
+    result["original_commit_evidence"] = original
+    result["note"] = (
+        "Evidence for the cherry-pick and its original is shown separately. "
+        "Test results are never transferred between them."
+    )
+    return result
