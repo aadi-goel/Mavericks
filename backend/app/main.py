@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.app import settings as app_settings
+from backend.app.analysis import build_mock_analysis
 from backend.app.db import init_db
 from backend.app.repository import build_dummy_repo_info, register_repository
 
@@ -70,6 +71,12 @@ class BridgeAPI:
     Methods still returning _not_implemented get real bodies in later parts.
     """
 
+    def __init__(self) -> None:
+        # Underscore names are not exposed to JS by pywebview.
+        self._repo_id: int | None = None
+        self._repo_path: Path | None = None
+        self._analysis: JsonDict | None = None  # latest analyze_merge result
+
     @staticmethod
     def _not_implemented(name: str) -> JsonDict:
         return fail(f"{name} is not implemented yet")
@@ -94,12 +101,26 @@ class BridgeAPI:
         if not repo_path.is_dir():
             return fail(f"Folder not found: {path}")
         repo_id = register_repository(repo_path)
+        self._repo_id = repo_id
+        self._repo_path = repo_path.resolve()
+        self._analysis = None  # a new repo invalidates any old analysis
         # TODO (Member 3): replace with real Git Engine data
         return ok(build_dummy_repo_info(repo_id, repo_path))
 
     @bridge_method
     def analyze_merge(self, source: str, target: str) -> JsonDict:
-        return self._not_implemented("analyze_merge")
+        if self._repo_id is None:
+            return fail("Open a repository first")
+        for label, value in (("source", source), ("target", target)):
+            if not isinstance(value, str) or not value.strip():
+                return fail(f"{label} branch is required")
+        source, target = source.strip(), target.strip()
+        if source == target:
+            return fail("Source and target must be different branches")
+        # TODO (Member 3 + 4): replace with real Git Engine + Provenance data
+        analysis = build_mock_analysis(self._repo_id, source, target)
+        self._analysis = analysis  # Parts 5 and 7 read hunks/files from here
+        return ok(analysis)
 
     @bridge_method
     def get_settings(self) -> JsonDict:
