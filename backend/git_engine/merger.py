@@ -15,7 +15,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from .history import _resolve_commit, compare_branches
+from .history import _LOG_FORMAT, _parse_commits, _resolve_commit, compare_branches
 from .repo_ops import GitError, run_git, supports_merge_tree_write_tree
 
 # Conflict marker lines written by Git.
@@ -23,6 +23,9 @@ _MARK_START = re.compile(r"^<{7}(?: .*)?$")
 _MARK_BASE = re.compile(r"^\|{7}(?: .*)?$")
 _MARK_MIDDLE = re.compile(r"^={7}$")
 _MARK_END = re.compile(r"^>{7}(?: .*)?$")
+
+# How many commits to list per side, per file.
+MAX_COMMITS_PER_SIDE = 100
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +227,7 @@ def _dry_run_worktree(repo_path, target_hash: str, source_hash: str) -> tuple[li
 
 
 # ---------------------------------------------------------------------------
-# Public function
+# Building the result
 # ---------------------------------------------------------------------------
 
 def _build_conflict_file(
@@ -251,6 +254,8 @@ def _build_conflict_file(
             "incoming_content": None,
             "result_with_markers": None,
             "hunks": [],
+            "current_commits": [],
+            "incoming_commits": [],
         }
 
     hunks = parse_conflict_hunks(marked_text, conflict_type) if marked_text else []
@@ -266,8 +271,77 @@ def _build_conflict_file(
         "incoming_content": incoming,    # source side
         "result_with_markers": marked_text,
         "hunks": hunks,
+        "current_commits": [],
+        "incoming_commits": [],
     }
 
+
+# ---------------------------------------------------------------------------
+# Part 4: map hunks to the commits responsible
+# ---------------------------------------------------------------------------
+
+def _commits_touching_file(
+    repo_path,
+    merge_base: str,
+    branch_hash: str,
+    path: str,
+    limit: int = MAX_COMMITS_PER_SIDE,
+) -> list[dict]:
+    """Commits on a branch, made after the merge base, that changed one file.
+
+    This is `git log <merge-base>..<branch> -- <file>`. A commit that deleted
+    the file is included too.
+    """
+    result = run_git(
+        repo_path,
+        [
+            "log",
+            f"--format={_LOG_FORMAT}",
+            "-n",
+            str(limit),
+            f"{merge_base}..{branch_hash}",
+            "--",
+            path,
+        ],
+    )
+    return _parse_commits(result.stdout)
+
+
+def map_hunks_to_commits(
+    repo_path,
+    conflicted_files: list[dict],
+    merge_base: str,
+    target_hash: str,
+    source_hash: str,
+) -> list[dict]:
+    """Add the responsible commits to every conflicted file and hunk.
+
+    For each file:
+      file["current_commits"]  = commits on the TARGET side touching this file
+      file["incoming_commits"] = commits on the SOURCE side touching this file
+    Every hunk in the file gets the same two lists, plus
+      hunk["mapping_precision"] = "commits_touching_file"
+    so the UI can honestly label them "commits touching this file".
+    """
+    for conflict_file in conflicted_files:
+        path = conflict_file["path"]
+        current_commits = _commits_touching_file(repo_path, merge_base, target_hash, path)
+        incoming_commits = _commits_touching_file(repo_path, merge_base, source_hash, path)
+
+        conflict_file["current_commits"] = current_commits
+        conflict_file["incoming_commits"] = incoming_commits
+
+        for hunk in conflict_file["hunks"]:
+            hunk["current_commits"] = current_commits
+            hunk["incoming_commits"] = incoming_commits
+            hunk["mapping_precision"] = "commits_touching_file"
+
+    return conflicted_files
+
+
+# ---------------------------------------------------------------------------
+# Public function
+# ---------------------------------------------------------------------------
 
 def analyze_merge(
     repo_path,
@@ -286,7 +360,9 @@ def analyze_merge(
         "conflicted_files": [ {path, conflict_type, is_binary,
                                base_content, current_content,
                                incoming_content, result_with_markers,
-                               hunks: [...]}, ... ],
+                               hunks: [...],
+                               current_commits: [...],
+                               incoming_commits: [...]}, ... ],
         "summary": {...}
       }
     """
@@ -316,6 +392,9 @@ def analyze_merge(
         )
         for name in names
     ]
+
+    # Part 4: attach the responsible commits to every file and hunk.
+    map_hunks_to_commits(repo_path, conflicted_files, merge_base, target_hash, source_hash)
 
     has_conflicts = bool(conflicted_files)
     commits_to_merge = compare_branches(repo_path, source, target)["counts"]["only_in_source"]
