@@ -108,7 +108,7 @@ def compute_status(commit_hash: str, evidence: dict[str, Any]) -> dict[str, Any]
     return _result(commit, status, evidence, matched, deployments)
 
 
-def  get_commit_evidence(
+def get_commit_evidence(
     commit_hash: str,
     evidence_path: str | Path = DEFAULT_EVIDENCE_PATH,
     *,
