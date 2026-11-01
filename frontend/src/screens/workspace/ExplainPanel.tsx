@@ -6,13 +6,17 @@ import type { ConflictExplanation } from "../../types";
 export default function ExplainPanel({ hunkId }: { hunkId?: string }) {
   const [exp, setExp] = useState<ConflictExplanation | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  useEffect(() => setExp(null), [hunkId]);
+  useEffect(() => { setExp(null); setError(""); }, [hunkId]);
 
   const run = async () => {
     if (!hunkId) return;
     setBusy(true);
-    try { setExp(await bridge.explainConflict(hunkId)); } finally { setBusy(false); }
+    setError("");
+    try { setExp(await bridge.explainConflict(hunkId, hunkId)); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -20,12 +24,12 @@ export default function ExplainPanel({ hunkId }: { hunkId?: string }) {
       <button className="btn" disabled={!hunkId || busy} onClick={run}>
         {busy ? "Explaining…" : "Explain this conflict"}
       </button>
-      <div className="ai-warn">AI explanation - verify before relying on it</div>
+      <div className="ai-warn">{exp?.label ?? "AI explanation — verify before relying on it"}</div>
+      {error && <div className="error">{error}</div>}
       {exp && (
         <div className="ev">
-          <p style={{ margin: "0 0 6px" }}><strong>Current:</strong> {exp.currentSummary}</p>
-          <p style={{ margin: "0 0 6px" }}><strong>Incoming:</strong> {exp.incomingSummary}</p>
-          <p style={{ margin: 0 }}><strong>Why Git reports a conflict:</strong> {exp.whyConflict}</p>
+          <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{exp.explanation}</p>
+          <div className="muted">Model: {exp.model}{exp.cached ? " · cached" : ""}</div>
         </div>
       )}
     </div>

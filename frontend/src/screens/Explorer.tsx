@@ -30,13 +30,36 @@ export default function Explorer() {
   const [branch, setBranch] = useState(target || branches[0]?.name || "");
   const [commits, setCommits] = useState<Commit[]>([]);
   const [cmp, setCmp] = useState<BranchComparison | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => { if (branch) bridge.listCommits(branch).then(setCommits); }, [branch]);
-  useEffect(() => { if (source && target) bridge.compareBranches(source, target).then(setCmp); }, [source, target]);
+  useEffect(() => {
+    let active = true;
+    if (branch) {
+      setBusy(true);
+      setError("");
+      bridge.listCommits(branch, branch === source ? target : source)
+        .then((items) => { if (active) setCommits(items); })
+        .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : String(e)); })
+        .finally(() => { if (active) setBusy(false); });
+    }
+    return () => { active = false; };
+  }, [branch, source, target]);
+  useEffect(() => {
+    let active = true;
+    if (source && target) {
+      setError("");
+      bridge.compareBranches(source, target)
+        .then((comparison) => { if (active) setCmp(comparison); })
+        .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : String(e)); });
+    }
+    return () => { active = false; };
+  }, [source, target]);
 
   return (
     <>
       <h2 className="page-title">Repository Explorer</h2>
+      {error && <div className="error">{error}</div>}
 
       <div className="card">
         <h3>Commits</h3>
@@ -47,7 +70,7 @@ export default function Explorer() {
             </select>
           </label>
         </div>
-        <CommitTable commits={commits} />
+        {busy ? <p className="muted">Loading commits…</p> : <CommitTable commits={commits} />}
       </div>
 
       <div className="card">

@@ -112,12 +112,21 @@ def _build_history(repo: Repo) -> dict[str, str]:
     # ---- dev -------------------------------------------------------------
     repo.git("checkout", "dev")
     repo.write("helpers.py", HELPERS)
+    repo.write(
+        "config.py",
+        BASE_FILES["config.py"]
+        .replace("TIMEOUT = 30", "TIMEOUT = 45")
+        .replace("RETRIES = 3", "RETRIES = 5"),
+    )
     c["dev_verified"] = repo.commit("Add retry helper")
-    repo.write("config.py", BASE_FILES["config.py"].replace("TIMEOUT = 30", "TIMEOUT = 45"))
-    c["dev_failed"] = repo.commit("Set TIMEOUT to 45")
+    config = (repo.path / "config.py").read_text(encoding="utf-8")
+    repo.write("config.py", config.replace('APP_NAME = "demo"', 'APP_NAME = "demo-test"'))
+    c["dev_failed"] = repo.commit("Set demo app name")
     repo.write("notes.txt", "legacy notes\nupdated on dev\n")
     c["dev_unverified"] = repo.commit("Update notes")
     repo.write("VERSION", "1.0\n")
+    config = (repo.path / "config.py").read_text(encoding="utf-8")
+    repo.write("config.py", config + "MAX_RETRIES = 5\n")
     c["dev_version"] = repo.commit("Add VERSION file")
 
     # ---- uat (independent change => dev -> uat is a clean merge) ---------
@@ -129,9 +138,13 @@ def _build_history(repo: Repo) -> dict[str, str]:
     repo.git("checkout", "prod")
     repo.git("cherry-pick", "-x", c["dev_verified"])  # adds the trailer
     c["prod_cherry_pick"] = repo.git("rev-parse", "HEAD")
+    repo.git("cherry-pick", "-x", c["dev_failed"])
     repo.write("VERSION", "1.0\n")  # same patch as dev_version, different hash, no trailer
+    config = (repo.path / "config.py").read_text(encoding="utf-8")
+    repo.write("config.py", config + "MAX_RETRIES = 5\n")
     c["prod_equivalent"] = repo.commit("Add version file (manual backport)")
-    repo.write("config.py", BASE_FILES["config.py"].replace("TIMEOUT = 30", "TIMEOUT = 60"))
+    config = (repo.path / "config.py").read_text(encoding="utf-8")
+    repo.write("config.py", config.replace("TIMEOUT = 45", "TIMEOUT = 60"))
     c["prod_timeout"] = repo.commit("Set TIMEOUT to 60")
     (repo.path / "notes.txt").unlink()
     c["prod_delete_notes"] = repo.commit("Remove legacy notes")

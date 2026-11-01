@@ -1,8 +1,7 @@
 """Repository registration and the open_repository payload (PRD 7.1 and 8).
 
-Real data comes from Member 3 (backend/git_engine) and Member 4
-(backend/provenance). This module only orchestrates: validate, read, combine,
-and record the repository in SQLite.
+Git data comes from backend/git_engine and evidence data comes from
+backend/provenance. This module validates, combines, and registers the repo.
 """
 
 from pathlib import Path
@@ -81,7 +80,7 @@ def _count_commits(root: str, ref: str) -> int:
 def _warnings(status: dict[str, Any], evidence: dict[str, Any]) -> list[dict[str, str]]:
     warnings: list[dict[str, str]] = []
     if not status["is_clean"]:
-        count = len(status["tracked_changes"])
+        count = len(status["tracked_changes"]) + len(status["untracked_files"])
         warnings.append(
             {
                 "code": "dirty_worktree",

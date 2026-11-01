@@ -90,7 +90,8 @@ export const stubAnalysis = (source: string, target: string): MergeAnalysis => (
 });
 
 export const stubExplanation: ConflictExplanation = {
-  currentSummary: "The target branch keeps a 30 second timeout and allows a single retry.",
-  incomingSummary: "The source branch lowers the timeout to 10 seconds and allows up to 5 retries.",
-  whyConflict: "Both branches edited the same two lines after their common ancestor, so Git cannot tell which values should win.",
+  label: "AI explanation — verify before relying on it",
+  explanation: "The target and source branches changed overlapping lines after their common ancestor. Git cannot safely choose one side automatically.",
+  model: "Gemma (demo)",
+  cached: false,
 };

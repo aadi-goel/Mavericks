@@ -2,6 +2,13 @@ export type TestStatus = "Verified" | "Failed" | "Unverified" | "Unknown";
 export type CommitRelation = "Cherry-pick reference" | "Equivalent patch";
 export type EvidenceOrigin = "Source" | "Target" | "Cherry-pick reference" | "Common ancestor";
 
+export interface AppSettings {
+  evidence_path: string;
+  lm_studio_url: string;
+  lm_model: string;
+  gemma_enabled: boolean;
+}
+
 export interface Commit {
   hash: string;
   shortHash: string;
@@ -22,20 +29,35 @@ export interface RepoSummary {
   name: string;
   path: string;
   currentBranch: string;
-  latestCommit: Commit;
+  latestCommit: Commit | null;
   branchCount: number;
   commitsScanned: number;
   evidenceCount: number;
   dirty: boolean;
+  warnings?: { code: string; message: string }[];
 }
 
 export interface Evidence {
   hash: string;
   shortHash: string;
   author: string;
-  origin: EvidenceOrigin;
+  origin: string;
   equivalentPatch: boolean;
   testStatus: TestStatus;
+  message?: string;
+  date?: string;
+  records?: EvidenceRecord[];
+  original?: { status: TestStatus } | null;
+  originalHash?: string | null;
+  originalInRepo?: boolean;
+}
+
+export interface EvidenceRecord {
+  type: string;
+  result: string;
+  timestamp: string;
+  source: string;
+  reference: string | null;
 }
 
 export interface Hunk {
@@ -48,6 +70,11 @@ export interface Hunk {
 
 export interface ConflictFile {
   path: string;
+  isBinary?: boolean;
+  conflictType?: string;
+  baseContent?: string | null;
+  currentDeleted?: boolean;
+  incomingDeleted?: boolean;
   hunks: Hunk[];
 }
 
@@ -59,14 +86,17 @@ export interface BranchComparison {
 export interface MergeAnalysis {
   source: string;
   target: string;
+  cleanMerge?: boolean;
+  mergeBase?: string;
   files: ConflictFile[];
 }
 
 /** Plain-language only. Deliberately has NO field for a suggested resolution or merged code. */
 export interface ConflictExplanation {
-  currentSummary: string;
-  incomingSummary: string;
-  whyConflict: string;
+  label: string;
+  explanation: string;
+  model: string;
+  cached: boolean;
 }
 
 export interface ResolutionPayload {

@@ -211,7 +211,7 @@ def get_working_tree_status(repo_path: str | Path) -> dict:
     """Describe uncommitted changes. Read-only.
 
     Returns:
-      {"is_clean": bool,                 # no changes to tracked files
+      {"is_clean": bool,                 # no tracked or untracked user changes
        "tracked_changes": [{"status": "M", "path": "app.py"}, ...],
        "untracked_files": [path, ...],   # brand-new files Git does not track
        "merge_in_progress": bool}
@@ -243,7 +243,7 @@ def get_working_tree_status(repo_path: str | Path) -> dict:
         repo_path, ["rev-parse", "-q", "--verify", "MERGE_HEAD"], check=False
     )
     return {
-        "is_clean": not tracked,
+        "is_clean": not tracked and not untracked,
         "tracked_changes": tracked,
         "untracked_files": untracked,
         "merge_in_progress": merge_head.returncode == 0,
@@ -291,12 +291,14 @@ def check_ready_to_commit(repo_path: str | Path, source: str, target: str) -> di
         )
 
     if not status["is_clean"]:
-        paths = [change["path"] for change in status["tracked_changes"]]
+        paths = [
+            change["path"] for change in status["tracked_changes"]
+        ] + status["untracked_files"]
         listed = ", ".join(paths[:5])
         if len(paths) > 5:
             listed += f", and {len(paths) - 5} more"
         problems.append(
-            f"Uncommitted changes found ({len(paths)}): {listed}. "
+            f"Uncommitted changes found ({len(paths)}): {listed or 'unknown paths'}. "
             "Commit or save them yourself first; "
             "GitGuardian never stashes or discards your changes."
         )
