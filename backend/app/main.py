@@ -17,11 +17,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.ai import explainer
-from backend.app import resolution
+from backend.app import repository, resolution
 from backend.app import settings as app_settings
 from backend.app.analysis import build_mock_analysis
 from backend.app.db import init_db
-from backend.app.repository import build_dummy_repo_info, register_repository
 
 log = logging.getLogger("gitguardian")
 
@@ -99,16 +98,15 @@ class BridgeAPI:
     def open_repository(self, path: str) -> JsonDict:
         if not isinstance(path, str) or not path.strip():
             return fail("Repository path is required")
-        repo_path = Path(path).expanduser()
-        if not repo_path.is_dir():
-            return fail(f"Folder not found: {path}")
-        repo_id = register_repository(repo_path)
+        try:
+            repo_id, root, info = repository.open_repository(path.strip())
+        except ValueError as exc:
+            return fail(str(exc))
         self._repo_id = repo_id
-        self._repo_path = repo_path.resolve()
+        self._repo_path = root
         self._analysis = None  # a new repo invalidates any old analysis
         self._resolutions = {}
-        # TODO (Member 3): replace with real Git Engine data
-        return ok(build_dummy_repo_info(repo_id, repo_path))
+        return ok(info)
 
     @bridge_method
     def analyze_merge(self, source: str, target: str) -> JsonDict:
